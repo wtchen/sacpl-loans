@@ -1,0 +1,185 @@
+/*
+  Shared design primitives for the SacPL Loans panel. Component-specific
+  styles live scoped inside each .svelte file; the classes here are the
+  building blocks reused across views (buttons, form fields, headers,
+  spinners). Component-scoped rules always win over these globals.
+
+  Colors are theme tokens: the panel follows the system dark/light
+  appearance via prefers-color-scheme. Dark values match the original
+  dark-only design; light values are the Apple-style equivalents.
+*/
+
+html,
+body {
+  background: transparent;
+  margin: 0;
+  user-select: none;
+  /* The panel window is fixed-size; the document itself never scrolls.
+     Scrollable regions (loan list, log, debug events) scroll internally. */
+  overflow: hidden;
+}
+
+:root {
+  color-scheme: light dark;
+
+  /* Light theme (default) */
+  --bg-panel: rgba(246, 246, 248, 0.98);
+  --border-panel: rgba(0, 0, 0, 0.09);
+  --text: #1d1d1f;
+  --text-2: #6e6e73;
+  --text-3: #98989d;
+  --control-bg: rgba(0, 0, 0, 0.06);
+  --control-bg-hover: rgba(0, 0, 0, 0.1);
+  --control-border: rgba(0, 0, 0, 0.14);
+  --input-bg: rgba(0, 0, 0, 0.05);
+  --input-border: rgba(0, 0, 0, 0.12);
+  --accent: #0a84ff;
+  --accent-hover: #3395ff;
+  --row-bg: rgba(0, 0, 0, 0.04);
+  --row-bg-hover: rgba(0, 0, 0, 0.08);
+  --row-border: rgba(0, 0, 0, 0.06);
+  --danger: #d70015;
+  --spinner-track: rgba(0, 0, 0, 0.15);
+  --libby-text: #6941c7;
+  --libby-bg: rgba(122, 85, 212, 0.12);
+  --libby-bg-hover: rgba(122, 85, 212, 0.2);
+  --libby-border: rgba(122, 85, 212, 0.35);
+  --log-bg: rgba(0, 0, 0, 0.04);
+  --log-text: #3c3c43;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-panel: rgba(28, 28, 30, 0.98);
+    --border-panel: rgba(255, 255, 255, 0.08);
+    --text: #ececf1;
+    --text-2: #9a9aa2;
+    --text-3: #6f6f78;
+    --control-bg: rgba(255, 255, 255, 0.08);
+    --control-bg-hover: rgba(255, 255, 255, 0.14);
+    --control-border: rgba(255, 255, 255, 0.14);
+    --input-bg: rgba(255, 255, 255, 0.07);
+    --input-border: rgba(255, 255, 255, 0.12);
+    --row-bg: rgba(255, 255, 255, 0.05);
+    --row-bg-hover: rgba(255, 255, 255, 0.09);
+    --row-border: rgba(255, 255, 255, 0.06);
+    --danger: #ff6b6b;
+    --spinner-track: rgba(255, 255, 255, 0.15);
+    --libby-text: #c9b0f5;
+    --libby-bg: rgba(122, 85, 212, 0.16);
+    --libby-bg-hover: rgba(122, 85, 212, 0.28);
+    --libby-border: rgba(150, 110, 255, 0.35);
+    --log-bg: rgba(0, 0, 0, 0.35);
+    --log-text: #b8b8c0;
+  }
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.head.row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+h1 {
+  font-size: 15px;
+  font-weight: 650;
+  margin: 0;
+}
+.sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.btn {
+  border: 1px solid var(--control-border);
+  background: var(--control-bg);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 550;
+  border-radius: 8px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) {
+  background: var(--control-bg-hover);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+}
+.btn.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.btn.ghost {
+  background: transparent;
+}
+.btn.wide {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.field input {
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  outline: none;
+}
+.field input:focus {
+  border-color: var(--accent);
+}
+
+.hint {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.5;
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 3px solid var(--spinner-track);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+.mini-spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--spinner-track);
+  border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.quit-link {
+  align-self: center;
+  font-size: 11px;
+  color: var(--text-2);
+  padding: 4px 10px;
+}
