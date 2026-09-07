@@ -10,7 +10,8 @@
   import { listen } from "@tauri-apps/api/event";
   import type { Event as TauriEvent, UnlistenFn } from "@tauri-apps/api/event";
   import { withTimeout } from "$lib/withTimeout";
-  import type { LibStatus, Loan, Checkouts, RenewResult } from "$lib/types";
+  import type { LibStatus, Loan, Checkouts, RenewResult, AppSettings } from "$lib/types";
+  import { updatedLabel as updatedLabelText, fullStamp, isStale } from "$lib/updated-label";
   import ConnectingView from "$lib/components/ConnectingView.svelte";
   import LoginView from "$lib/components/LoginView.svelte";
   import AccountHeader from "$lib/components/AccountHeader.svelte";
@@ -109,6 +110,13 @@
     listen<Loan>("debug-add-loan", (event: TauriEvent<Loan>) => {
       addDebugLoan(event.payload);
     }).then((u: UnlistenFn) => unlisten.push(u));
+    listen<number>("debug-last-updated", (event: TauriEvent<number>) => {
+      // Pretend the list was refreshed at the given time (ms epoch) so the
+      // "Updated …" label and stale-on-open refresh can be exercised.
+      lastUpdated = event.payload;
+      lastFetchAt = event.payload;
+      hasCache = false;
+    }).then((u: UnlistenFn) => unlisten.push(u));
     listen("debug-activate", () => {
       enterDebugMode();
       phase = "account";
@@ -141,11 +149,11 @@
       showToast("Your library session ended — please sign in again.", "err");
       phase = "login";
     }).then((u: UnlistenFn) => unlisten.push(u));
-    // Safety net: a hidden webview can be suspended and miss events, so when
-    // the panel opens with data older than 30 minutes, refresh silently.
+    // Refresh on panel open when the list is older than the configured
+    // refresh interval (not a fixed 30 minutes).
     listen("panel-shown", () => {
-      if (phase === "account" && !busy && Date.now() - lastFetchAt > 30 * 60 * 1000) {
-        void loadCheckouts(true);
+      if (phase === "account" && !busy) {
+        void refreshIfStale();
       }
     }).then((u: UnlistenFn) => unlisten.push(u));
     void init();
@@ -154,6 +162,32 @@
       for (const u of unlisten) u();
     };
   });
+
+  // The configured refresh interval in ms (1 hour when settings are unreadable).
+  async function refreshIntervalMs(): Promise<number> {
+    try {
+      const s = await withTimeout(invoke<AppSettings>("lib_get_settings"), 5000, "Loading settings");
+      return (s?.refreshSecs ?? 3600) * 1000;
+    } catch {
+      return 60 * 60 * 1000;
+    }
+  }
+
+  /** Refresh when the on-screen list is older than the refresh interval. */
+  async function refreshIfStale() {
+    if (busy || phase === "login") return;
+    if (!lastUpdated) {
+      await loadCheckouts(true);
+      return;
+    }
+    if (isStale(lastUpdated, Date.now(), await refreshIntervalMs())) {
+      await loadCheckouts(true);
+    } else if (hasCache && lastFetchAt === 0) {
+      // The list is fresh from the interval's point of view. Mark the fetch
+      // time so cache-only renewal restrictions don't kick in needlessly.
+      lastFetchAt = lastUpdated;
+    }
+  }
 
   async function init() {
     // 1) Instant paint from the on-disk cache (written after every successful
@@ -194,7 +228,7 @@
     }
     if (s.loggedIn) {
       phase = "account";
-      loadCheckouts(true);
+      await refreshIfStale();
       return;
     }
     // Ready but logged out: the backend's silent Keychain re-login may still
@@ -208,7 +242,7 @@
       if (s2?.loggedIn) {
         stopStatusPoll();
         phase = "account";
-        await loadCheckouts(true);
+        await refreshIfStale();
         return;
       }
       waited += 3;
@@ -350,14 +384,9 @@
   const overdueCount = () => loans.filter((l) => l.overdue).length;
   // The catalog's checkoutInfoLastLoaded rarely changes between fetches (it's
   // the ILS sync time), so the footer shows OUR last successful refresh.
-  const updatedLabel = () =>
-    lastUpdated
-      ? `Updated ${new Date(lastUpdated).toLocaleTimeString([], {
-          hour: "numeric",
-          minute: "2-digit",
-          second: "2-digit",
-        })}`
-      : "";
+  const updatedLabel = () => updatedLabelText(lastUpdated, Date.now());
+  // Hover tooltip: full timestamp, e.g. "Sep 6 10:15 PM".
+  const updatedTitle = () => (lastUpdated ? fullStamp(lastUpdated, Date.now()) : "");
   // Renewal is disabled while a refresh is in flight, while the list on
   // screen is only the disk cache (we don't know we're logged in yet), and
   // while the backend is signing back in after a session expiry.
@@ -410,6 +439,7 @@
         busy={busy}
         reconnecting={reconnecting}
         updated={updatedLabel()}
+        updatedTitle={updatedTitle()}
         onrefresh={() => loadCheckouts()}
       />
     {/if}

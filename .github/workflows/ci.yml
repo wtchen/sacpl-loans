@@ -16,5 +16,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
       - run: npm run check
+      - run: npm test
       - run: npm run build
       - run: cargo check --manifest-path src-tauri/Cargo.toml

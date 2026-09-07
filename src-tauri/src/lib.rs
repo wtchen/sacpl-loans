@@ -913,6 +913,16 @@ fn lib_add_debug_loan(app: AppHandle, loan: serde_json::Value) -> Result<(), Str
     app.emit("debug-add-loan", loan).map_err(|e| e.to_string())
 }
 
+/// Debug: pretend the list was last refreshed at the given time (ms epoch),
+/// to exercise the "Updated …" label and the stale-on-open refresh.
+#[tauri::command]
+fn lib_debug_set_refresh_time(app: AppHandle, at_ms: i64) -> Result<(), String> {
+    if !DEBUG_ACTIVE {
+        return Err("Developer tools are only available in dev mode and debug builds.".into());
+    }
+    app.emit("debug-last-updated", at_ms).map_err(|e| e.to_string())
+}
+
 /// Developer Settings ▸ Debug Events: simulate (or, where possible, really
 /// trigger) events related to the library catalog, to exercise the app's
 /// reactions without waiting for the real thing.
@@ -1759,6 +1769,7 @@ pub fn run() {
             lib_show_debug_events,
             lib_enter_debug_mode,
             lib_add_debug_loan,
+            lib_debug_set_refresh_time,
             lib_debug_event
         ])
         .run(tauri::generate_context!())

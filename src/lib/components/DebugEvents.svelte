@@ -31,6 +31,23 @@
     { label: "Add max-renewals book", detail: "A physical item that cannot be renewed again.", days: 1 },
   ];
 
+  /** Pretend the list was last refreshed at these offsets (ms ago). */
+  const REFRESH_SCENARIOS: { label: string; detail: string; agoMs: () => number }[] = [
+    { label: "Refreshed just now", detail: "The footer shows today's time.", agoMs: () => 0 },
+    { label: "3 hours ago", detail: "Older than the default 1-hour interval — reopening refreshes.", agoMs: () => 3 * 60 * 60 * 1000 },
+    { label: "Yesterday", detail: "The footer shows “Updated yesterday”.", agoMs: () => 24 * 60 * 60 * 1000 },
+    { label: "3 days ago", detail: "The footer shows “Updated 3 days ago”.", agoMs: () => 3 * 24 * 60 * 60 * 1000 },
+    { label: "20 days ago", detail: "The footer shows the date, e.g. “Updated 17 Aug 2026”.", agoMs: () => 20 * 24 * 60 * 60 * 1000 },
+  ];
+
+  async function setRefreshTime(scenario: { label: string; agoMs: () => number }) {
+    try {
+      await invoke("lib_debug_set_refresh_time", { atMs: Date.now() - scenario.agoMs() });
+    } catch (error) {
+      console.error("Setting refresh time failed", error);
+    }
+  }
+
   const ADJECTIVES = ["Last", "Hidden", "Quiet", "Golden", "Forgotten", "Northern", "Midnight", "Small"];
   const NOUNS = ["Garden", "Map", "Harbor", "Library", "Orchard", "River", "House", "Archive"];
   const SUBTITLES = ["a novel", "stories", "a memoir", "an investigation", "notes from the coast"];
@@ -84,6 +101,18 @@
           <div class="event">
             <button class="btn" onclick={() => addBook(type)} title={type.detail}>{type.label}</button>
             <span class="event-detail">{type.detail}</span>
+          </div>
+        {/each}
+      </div>
+    </section>
+
+    <section>
+      <h2>Refresh Time</h2>
+      <div class="events">
+        {#each REFRESH_SCENARIOS as scenario (scenario.label)}
+          <div class="event">
+            <button class="btn" onclick={() => setRefreshTime(scenario)} title={scenario.detail}>{scenario.label}</button>
+            <span class="event-detail">{scenario.detail}</span>
           </div>
         {/each}
       </div>

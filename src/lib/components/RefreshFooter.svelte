@@ -6,6 +6,8 @@
   export let reconnecting: boolean;
   /** Preformatted "Updated …" label ("" when never updated). */
   export let updated: string;
+  /** Hover tooltip: full timestamp of the last update. */
+  export let updatedTitle = "";
   export let onrefresh: () => void;
 </script>
 
@@ -13,7 +15,7 @@
   <button class="btn ghost refresh-btn" onclick={onrefresh} disabled={busy || reconnecting}>
     {#if busy}<span class="mini-spinner" aria-hidden="true"></span>Refreshing…{:else}Refresh{/if}
   </button>
-  <span class="updated">{updated}</span>
+  <span class="updated" title={updatedTitle}>{updated}</span>
 </footer>
 
 <style>
