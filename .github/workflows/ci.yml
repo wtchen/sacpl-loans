@@ -18,4 +18,5 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run build
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
       - run: cargo check --manifest-path src-tauri/Cargo.toml

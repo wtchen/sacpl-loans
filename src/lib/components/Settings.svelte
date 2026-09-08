@@ -13,10 +13,7 @@
 
   /** Called when the user taps Done (close the settings view). */
   export let onclose: () => void;
-  /**
-   * Called after the on-disk checkout cache has been cleared, so the parent
-   * can switch back to the account view and reload from the catalog.
-   */
+  /** Clear the cache, then let the parent reload from the catalog. */
   export let oncleared: () => void;
   /** Surface a toast in the parent view. */
   export let notify: (msg: string, kind?: "ok" | "err") => void;
@@ -25,6 +22,7 @@
   let settingsBusy = false;
   let bridgeVisible = false;
   let bridgeBusy = false;
+  let cacheBusy = false;
   let debugMode = false; // hidden entirely in default (non-debug) builds
   let logLines: string[] = [];
   let logBusy = false;
@@ -37,10 +35,9 @@
     listen<boolean>("bridge-visibility", (event: TauriEvent<boolean>) => {
       bridgeVisible = !!event.payload;
     }).then((u: UnlistenFn) => unlisten.push(u));
-    // The panel usually hides (and can be App-Nap suspended) while the
-    // browser window is open, so events can be missed — re-sync the real
-    // state whenever the panel is shown again. The log view also re-reads
-    // the file to pick up lines logged while the panel was hidden.
+    // The panel hides (and can be App-Nap suspended) while the browser
+    // window is open, so events can be missed: re-sync the real visibility
+    // and the log whenever the panel is shown again.
     listen("panel-shown", () => {
       void syncBridgeVisible();
       if (view === "log") void loadLog();
@@ -155,6 +152,22 @@
     }
   }
 
+  async function openCacheFolder() {
+    cacheBusy = true;
+    try {
+      const path = await withTimeout(
+        invoke<string>("lib_show_cache_dir"),
+        10000,
+        "Opening the cache folder"
+      );
+      notify(`Opened ${path}`);
+    } catch (e) {
+      notify(String(e), "err");
+    } finally {
+      cacheBusy = false;
+    }
+  }
+
   async function loadLog() {
     logBusy = true;
     try {
@@ -239,6 +252,14 @@
     <button class="btn ghost" onclick={resetBridge} disabled={bridgeBusy}>
       Reload the Catalog Page
     </button>
+
+    <button class="btn ghost" onclick={openCacheFolder} disabled={cacheBusy}>
+      Open Cache Folder
+    </button>
+    <p class="hint">
+      Opens this Mac's app data folder — the saved list (checkouts-cache.json), the settings file
+      and the app log live there.
+    </p>
 
     <button class="btn ghost dev-link" onclick={() => { view = "log"; void loadLog(); }}>
       View App Log

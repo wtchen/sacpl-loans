@@ -31,7 +31,8 @@
     { label: "Add max-renewals book", detail: "A physical item that cannot be renewed again.", days: 1 },
   ];
 
-  /** Pretend the list was last refreshed at these offsets (ms ago). */
+  /** Debug: pretend the list was last refreshed N ms ago (footer label
+   *  and stale-on-open refresh behavior). */
   const REFRESH_SCENARIOS: { label: string; detail: string; agoMs: () => number }[] = [
     { label: "Refreshed just now", detail: "The footer shows today's time.", agoMs: () => 0 },
     { label: "3 hours ago", detail: "Older than the default 1-hour interval — reopening refreshes.", agoMs: () => 3 * 60 * 60 * 1000 },

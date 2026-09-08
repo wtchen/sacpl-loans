@@ -2,13 +2,11 @@
  * Bridge script — injected into the hidden WKWebView that loads
  * https://catalog.saclibrary.org/MyAccount/Home (Aspen by LSC).
  *
- * Every method returns a Promise that resolves to a JSON-serializable object.
- * Results are also mirrored into `window.__store[name]` so the Rust side can
- * poll them even if a page reload kills the pending promise.
- *
- * All fetch() calls are same-origin, so the Aspen session cookie is sent and
- * stored automatically in the webview's persistent cookie jar — that is what
- * makes the login survive app restarts.
+ * All fetch() calls are same-origin, so the Aspen session cookie rides in
+ * the webview's persistent cookie jar — that is what makes the login
+ * survive app restarts. Every method returns a Promise and mirrors its
+ * result into `window.__store[name]` so the Rust side can poll results even
+ * if a page reload kills the pending promise.
  */
 (function () {
   "use strict";
@@ -54,9 +52,8 @@
 
     const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
 
-    // Each row has a `checkedOut-covers-column` with an
-    // `img.listResultImage` pointing at the catalog's bookcover.php (or an
-    // OverDrive CDN URL). Absolutize relative URLs against the bridge page.
+    // Cover image is absolutized against the bridge page (some rows carry
+    // relative bookcover.php URLs).
     const extractCover = (row) => {
       const img =
         row.querySelector("img.listResultImage") ||
@@ -124,8 +121,8 @@
       return { kind: "", patronId: "", recordId: "", renewIndicator: "", renewable: false };
     };
 
-    // The title anchor links straight to the catalog record page
-    // (/Record/.b… or /OverDrive/<id>/Home), used for "open in catalog".
+    // The title anchor links to the catalog record page; used for "open in
+    // catalog".
     const extractUrl = (titleEl) => {
       const href = titleEl.getAttribute("href") || "";
       if (!href) return "";
@@ -136,9 +133,8 @@
       }
     };
 
-    // Libby (OverDrive) items renew through the Libby app, not the ILS renew
-    // flow. Rows without a renew anchor still have kind === "", so detect
-    // them from the row class, the record link, or the Format value instead.
+    // Libby (OverDrive) items renew via the Libby app, not the ILS flow —
+    // rows without a renew anchor still have kind === "".
     const isLibby = (row, titleHref) => {
       if (/overdrive/i.test(String(row.className || ""))) return true;
       if (/\/OverDrive\//i.test(String(titleHref || ""))) return true;
@@ -168,26 +164,21 @@
 
   /**
    * Fetch the patron's checkouts and parse them into structured items.
-   *
-   * `refreshCheckouts=true` forces the server to re-sync from the ILS.
-   * Without it the catalog can return a cached "Loading..." placeholder
-   * (right after login, the ILS sync runs in the background), which would
-   * look like "no items checked out" — so we retry while the catalog
-   * reports the sync as still in flight.
-   *
-   * A dead session is reported as `loggedOut: true`: the AJAX handler
-   * bounces signed-out requests to the sign-in page (a redirect, or the
-   * login form in the response body), so the caller can re-authenticate.
+   * `refreshCheckouts=true` forces an ILS re-sync: without it the catalog
+   * can serve a cached "Loading..." placeholder right after login, which
+   * would look like "no items" — so we retry while the sync is in flight.
+   * A dead session is reported as `loggedOut: true` (the AJAX handler
+   * bounces signed-out requests to the sign-in page) so callers can
+   * re-authenticate.
    */
   async function fetchCheckouts() {
-    // Debug simulations (Settings ▸ Developer Settings ▸ Debug Events): a
-    // one-shot flag that makes this fetch return the simulated outcome
-    // instead of hitting the network. Consumed on first use.
+    // Debug simulations: one-shot flag, consumed on first use, that makes
+    // this fetch return the simulated outcome instead of the network.
     const sim = window.__sim || null;
     if (sim) {
       window.__sim = null;
       if (sim === "http403") {
-        return { success: false, message: "Catalog returned HTTP 403", items: [] };
+        return { success: false, loggedOut: true, message: "Catalog returned HTTP 403", items: [] };
       }
       if (sim === "http500") {
         return { success: false, message: "Catalog returned HTTP 500", items: [] };
@@ -223,7 +214,12 @@
       attempts++;
       const res = await api("/MyAccount/AJAX?method=getCheckouts&source=all&refreshCheckouts=true");
       if (!res.ok) {
-        return { success: false, message: "Catalog returned HTTP " + res.status, items: [] };
+        const out = { success: false, message: "Catalog returned HTTP " + res.status, items: [] };
+        // A 403 is Cloudflare blocking the request even when the session is
+        // fine — a fresh sign-in re-establishes clearance in this webview, so
+        // mark it for the Rust re-login flow.
+        if (res.status === 403) out.loggedOut = true;
+        return out;
       }
       const body = await res.text();
       // Session expiry: bounced back to the sign-in page.
@@ -278,12 +274,8 @@
     }),
 
     /**
-     * Login by faithfully reproducing the catalog's own login form
-     * submission: POST /MyAccount/Home with every field the live form
-     * contains (hidden ones included) plus the clicked submit button.
-     *
-     * (Aspen's AJAX loginUser endpoint is broken on this installation — it
-     * crashes with an LDAP error — so the form POST is the reliable path.)
+     * Login by reproducing the catalog's own form POST (the AJAX loginUser
+     * endpoint crashes with an LDAP error on this installation).
      */
     doLogin: wrap("doLogin", async (username, password) => {
       const body = new URLSearchParams();
@@ -299,10 +291,8 @@
       }
       body.set("username", username);
       body.set("password", password);
-      // Ask the catalog to keep the session alive as long as it can.
       body.set("rememberMe", "on");
-      // A native submission includes the clicked button; FormData(form) does
-      // not, so set it explicitly.
+      // A native submission includes the clicked button; FormData(form) does not.
       body.set("submit", "Login");
 
       const bodySent = body.toString();
@@ -335,8 +325,7 @@
       }
       try { sessionStorage.setItem("__lib_login_result", JSON.stringify(r)); } catch (_) {}
       if (r.ok) {
-        // Reload so Globals.loggedIn (and the whole account UI) refreshes.
-        setTimeout(() => {
+        setTimeout(() => { // reload so Globals.loggedIn refreshes
           try { location.reload(); } catch (_) {}
         }, 150);
       }
@@ -359,25 +348,24 @@
 
     checkouts: wrap("checkouts", fetchCheckouts),
 
-    // Same fetch, stored under its own key so an hourly background refresh
-    // from Rust can't interleave with a manual Refresh from the panel (both
-    // sides poll window.__store by method name).
+    // Own store key so a background refresh can't interleave with a manual
+    // Refresh from the panel (both sides poll window.__store by name).
     checkoutsBg: wrap("checkoutsBg", fetchCheckouts),
 
     /**
-     * Renew one title. kind routes to the right catalog flow: physical items
-     * use the ILS renewCheckout, OverDrive (Libby) ebooks use the OverDrive
-     * AJAX endpoint. Handles the confirm-renewal-fee step automatically
-     * (but never accepts a paid renewal).
+     * Renew one physical item via the ILS renewCheckout (confirms the
+     * normal confirm step automatically but never accepts a paid renewal).
+     * Libby (OverDrive) ebooks are not renewed here — the Libby app is the
+     * only way to renew those.
      */
     renewOne: wrap("renewOne", async (kind, patronId, recordId, renewIndicator) => {
       if (kind === "overdrive") {
-        const url = "/OverDrive/AJAX?method=renewCheckout&patronId=" + j(patronId) +
-          "&overDriveId=" + j(recordId);
-        const res = await api(url);
-        if (!res.ok) return { success: false, title: "Renewal failed", message: "Catalog returned HTTP " + res.status, renewed: 0 };
-        const data = await res.json();
-        return { success: !!data.success, title: data.title || (data.success ? "Renewed" : "Could not renew"), message: data.message || "", renewed: data.success ? 1 : 0 };
+        return {
+          success: false,
+          title: "Renewal failed",
+          message: "Libby books have to be renewed through the Libby app.",
+          renewed: 0,
+        };
       }
       const base =
         "/MyAccount/AJAX?method=renewCheckout&patronId=" + j(patronId) +
@@ -407,6 +395,31 @@
         renewed: data.renewed || 0,
       };
     }),
+
+    /** Download a cover image inside this webview (its cookies and browser
+     *  fingerprint pass Cloudflare). Returns { mime, base64 } for the Rust
+     *  side to decode and store; store key is per-URL so covers can be
+     *  fetched in parallel. */
+    fetchCover: async (url) => {
+      const key = "fetchCover:" + url;
+      try {
+        const res = await fetch(url, { credentials: "same-origin" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const blob = await res.blob();
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        let binary = "";
+        const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk) {
+          binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+        }
+        const data = { mime: blob.type || "image/jpeg", base64: btoa(binary) };
+        store[key] = { ok: true, data };
+        return data;
+      } catch (e) {
+        store[key] = { ok: false, error: String((e && e.message) || e) };
+        throw e;
+      }
+    },
 
     /** Renew every renewable checkout. */
     renewAll: wrap("renewAll", async () => {

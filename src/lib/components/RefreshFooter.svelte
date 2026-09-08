@@ -1,13 +1,9 @@
 <!-- Footer: manual refresh plus when the list was last updated. -->
 <script lang="ts">
-  /** A refresh is in flight → show the spinner and "Refreshing…". */
-  export let busy: boolean;
-  /** A session restore is in flight → disable (no label change). */
-  export let reconnecting: boolean;
-  /** Preformatted "Updated …" label ("" when never updated). */
-  export let updated: string;
-  /** Hover tooltip: full timestamp of the last update. */
-  export let updatedTitle = "";
+  export let busy: boolean; // refresh in flight → spinner + disabled
+  export let reconnecting: boolean; // session restore in flight → disabled
+  export let updated: string; // preformatted "Updated …" label ("" = never)
+  export let updatedTitle = ""; // hover tooltip: full timestamp
   export let onrefresh: () => void;
 </script>
 

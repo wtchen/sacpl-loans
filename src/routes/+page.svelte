@@ -1,8 +1,6 @@
 <!--
-  The dropdown panel. This page owns all app state and async flows (login,
-  refreshes, renewals, session lifecycle) and composes the UI from
-  presentational components in $lib/components — each view/component file
-  holds its own markup and scoped styles.
+  The dropdown panel. Owns all app state and async flows (login, refreshes,
+  renewals, session lifecycle); views/components live in $lib/components.
 -->
 <script lang="ts">
   import { onMount } from "svelte";
@@ -35,14 +33,13 @@
   let toast = { msg: "", kind: "ok" as "ok" | "err" };
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
   let statusPoll: ReturnType<typeof setInterval> | null = null;
-  let lastFetchAt = 0; // last time a FRESH checkout list was fetched (ms epoch)
+  let lastFetchAt = 0; // ms epoch of the last FRESH fetch
   let lastUpdated = 0; // display only: when the list on screen was fetched (incl. cache's save time)
   let hasCache = false; // the current list came from the on-disk cache
   let reconnecting = false; // a refresh is re-authenticating an expired session
   let debugActive = false;
   let debugLoanIds = new Set<string>();
-  // The item awaiting renewal confirmation (null = dialog closed).
-  let renewConfirm: Loan | null = null;
+  let renewConfirm: Loan | null = null; // item awaiting renewal confirmation
   let renewConfirming = false;
 
   function stopStatusPoll() {
@@ -63,8 +60,8 @@
     lastStillSyncing = false;
     try {
       const r =
-        // Long budget: on an expired session the backend re-authenticates
-        // with the Keychain credentials and fetches again before returning.
+        // Long budget: an expired session is re-authenticated (Keychain)
+        // and refetched before this resolves.
         (await withTimeout(invoke<Checkouts>("lib_checkouts"), 150000, "Loading your loans")) ??
         undefined;
       if (r?.success) {
@@ -99,25 +96,18 @@
     }
   }
 
-  /**
-   * Background refreshes are driven by a Rust thread (so they run even while
-   * the panel is hidden) and arrive here as "checkouts-updated" events. Apply
-   * them unless we're on the login screen or the payload is a transient
-   * ILS-sync placeholder (never blank out a good list in the background).
-   *
-   * Session lifecycle events: when a refresh finds the catalog session
-   * expired, the backend tries to sign back in with the stored credentials —
-   * "session-reconnecting" makes that visible (banner + renewals disabled),
-   * and "session-expired" means recovery failed: toast + login screen.
-   */
+  // Background refreshes arrive from the Rust loop as "checkouts-updated"
+  // events; apply them unless on the login screen or the payload is a
+  // transient ILS-sync placeholder (never blank a good list in the
+  // background). session-reconnecting = re-auth in flight; session-expired =
+  // recovery failed.
   onMount(() => {
     const unlisten: Array<() => void> = [];
     listen<Loan>("debug-add-loan", (event: TauriEvent<Loan>) => {
       addDebugLoan(event.payload);
     }).then((u: UnlistenFn) => unlisten.push(u));
     listen<number>("debug-last-updated", (event: TauriEvent<number>) => {
-      // Pretend the list was refreshed at the given time (ms epoch) so the
-      // "Updated …" label and stale-on-open refresh can be exercised.
+      // Debug tool: pretend the list was refreshed at this time.
       lastUpdated = event.payload;
       lastFetchAt = event.payload;
       hasCache = false;
@@ -146,16 +136,15 @@
       reconnecting = false;
     }).then((u: UnlistenFn) => unlisten.push(u));
     listen("session-expired", () => {
-      // Only a surprise when we believed we were signed in (e.g. a
-      // deliberate Sign Out already shows the login form).
+      // Only a surprise when we believed we were signed in; a deliberate
+      // Sign Out already shows the login form.
       if (phase !== "account" && phase !== "settings") return;
       reconnecting = false;
       stopStatusPoll();
       showToast("Your library session ended — please sign in again.", "err");
       phase = "login";
     }).then((u: UnlistenFn) => unlisten.push(u));
-    // Refresh on panel open when the list is older than the configured
-    // refresh interval (not a fixed 30 minutes).
+    // On panel open, refresh data older than the refresh interval.
     listen("panel-shown", () => {
       if (phase === "account" && !busy) {
         void refreshIfStale();
@@ -178,7 +167,7 @@
     }
   }
 
-  /** Refresh when the on-screen list is older than the refresh interval. */
+  /** Refresh when the list on screen is older than the refresh interval. */
   async function refreshIfStale() {
     if (busy || phase === "login") return;
     if (!lastUpdated) {
@@ -188,15 +177,13 @@
     if (isStale(lastUpdated, Date.now(), await refreshIntervalMs())) {
       await loadCheckouts(true);
     } else if (hasCache && lastFetchAt === 0) {
-      // The list is fresh from the interval's point of view. Mark the fetch
-      // time so cache-only renewal restrictions don't kick in needlessly.
+      // Cache is within the interval — trust it for renewals too.
       lastFetchAt = lastUpdated;
     }
   }
 
   async function init() {
-    // 1) Instant paint from the on-disk cache (written after every successful
-    //    fetch), then reconcile/refresh against the catalog below.
+    // Paint the on-disk cache instantly, then reconcile with the catalog.
     try {
       const c = (await withTimeout(
         invoke<Checkouts | null>("lib_cached_checkouts"),
@@ -208,15 +195,15 @@
         lastLoaded = c.lastLoaded ?? "";
         lastUpdated = c.savedAt ? c.savedAt * 1000 : 0;
         hasCache = true;
-        phase = "account"; // provisional — reconciled against the catalog below
+        phase = "account"; // provisional until the catalog check below
       }
     } catch {
-      // The cache is best-effort; the normal flow continues without it.
+      // Cache is best-effort; continue without it.
     }
 
     let s = await checkStatus();
-    // The bridge webview needs a few seconds to load the catalog on first
-    // launch (and to pass any Cloudflare challenge). Poll until it reports.
+    // First launch needs a few seconds to load the catalog and pass any
+    // Cloudflare challenge — poll until the bridge reports ready.
     for (let i = 0; i < 45 && (!s || !s.ready); i++) {
       await new Promise((r) => setTimeout(r, 2000));
       s = await checkStatus();
@@ -236,9 +223,8 @@
       await refreshIfStale();
       return;
     }
-    // Ready but logged out: the backend's silent Keychain re-login may still
-    // be in flight. Show the form unless a cached list is on screen; give the
-    // re-login up to 90s before falling back to the form for good.
+    // Ready but logged out: the silent Keychain re-login may still be in
+    // flight; give it up to 90s before falling back to the login form.
     if (!hasCache) phase = "login";
     if (s.loginError) loginError = s.loginError;
     let waited = 0;
@@ -306,8 +292,7 @@
     }
   }
 
-  // Called by the Settings component after it clears the on-disk cache: back
-  // to the account view and reload from the catalog.
+  // Called by Settings after it clears the on-disk cache.
   function cacheCleared() {
     hasCache = false;
     phase = "account";
@@ -345,15 +330,12 @@
     }
   }
 
-  // Ask first: clicking Renew opens the confirmation dialog instead of
-  // renewing immediately.
   function askRenew(item: Loan) {
     if (renewBlocked) return;
     renewConfirm = item;
   }
 
-  // The dialog's Renew button: runs the renewal, keeps the dialog open
-  // (with a spinner) until the result is known, then closes.
+  /** Renewal runs with the dialog open (spinner) until the result lands. */
   async function confirmRenew() {
     const item = renewConfirm;
     if (!item || renewConfirming) return;
@@ -370,8 +352,7 @@
     if (renewBlocked) return;
     renewing = { ...renewing, [item.recordId]: true };
     try {
-      // Fake debug loans never call the catalog. Simulate a successful renewal
-      // by moving their due date three weeks forward in the panel only.
+      // Fake debug loans never call the catalog: +3 weeks, panel only.
       if (debugLoanIds.has(item.recordId)) {
         const dueLabel = simulatedRenewalDue(Date.now());
         loans = loans.map((loan) =>
@@ -404,18 +385,12 @@
     }
   }
 
-  // The catalog's checkoutInfoLastLoaded rarely changes between fetches (it's
-  // the ILS sync time), so the footer shows OUR last successful refresh.
-  // These are reactive declarations (not const functions called in the
-  // template): Svelte only tracks variables referenced directly in a template
-  // expression, so a const helper reading `lastUpdated` would never update.
+  // Reactive declarations, NOT const helpers called in the template —
+  // Svelte only tracks variables referenced directly in template
+  // expressions, so a const function reading `lastUpdated` never updates.
   $: overdueCount = loans.filter((l) => l.overdue).length;
   $: updatedLabel = updatedLabelText(lastUpdated, Date.now());
-  // Hover tooltip: full timestamp, e.g. "Sep 6 10:15 PM".
   $: updatedTitle = lastUpdated ? fullStamp(lastUpdated, Date.now()) : "";
-  // Renewal is disabled while a refresh is in flight, while the list on
-  // screen is only the disk cache (we don't know we're logged in yet), and
-  // while the backend is signing back in after a session expiry.
   $: renewBlocked = isRenewBlocked({ busy, reconnecting, hasCache, lastFetchAt });
 </script>
 

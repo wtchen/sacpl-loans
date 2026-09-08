@@ -1,8 +1,5 @@
-/**
- * Hard timeout around backend calls. Whatever happens on the Rust side
- * (slow catalog, bridge reload, suspended webview), the UI recovers and
- * the buttons can never stay stuck.
- */
+// Hard timeout around backend calls, so the UI recovers and buttons can
+// never stay stuck no matter what happens on the Rust side.
 export function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(

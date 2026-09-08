@@ -1,4 +1,5 @@
-<!-- Confirmation dialog shown before renewing a single item. -->
+<!-- Renewal confirmation dialog: backdrop click, Cancel or Esc dismisses;
+     Renew runs the renewal while the dialog stays open. -->
 <script lang="ts">
   import type { Loan } from "$lib/types";
 

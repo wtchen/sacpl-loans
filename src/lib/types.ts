@@ -5,7 +5,7 @@ export type LibStatus = { ready: boolean; loggedIn: boolean; loginError?: string
 export type Loan = {
   title: string;
   due: string;
-  cover?: string; // catalog bookcover.php URL, "" when the row has no image
+  cover?: string; // catalog bookcover URL, or a local path to the downloaded cover file
   url?: string; // the book's catalog page (opened on click)
   libby?: boolean; // OverDrive/Libby item — renewals happen in the Libby app
   overdue: boolean;

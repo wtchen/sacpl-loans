@@ -1,24 +1,27 @@
 <!--
-  The checked-out loans list. Each row is a clickable "pill" that opens the
-  book's catalog page; covers fall back to a placeholder; Libby items show
-  a chip instead of Renew (those renew in the Libby app).
+  The checked-out loans list: rows link to the book's catalog page, covers
+  fall back to a placeholder, Libby items get a chip instead of Renew.
 -->
 <script lang="ts">
   import type { Loan } from "$lib/types";
+  import { convertFileSrc } from "@tauri-apps/api/core";
+
+  // Covers are local file paths (downloaded by the cache) or remote URLs;
+  // local files load through the asset: protocol, URLs pass through.
+  function coverSrc(cover?: string) {
+    if (!cover) return "";
+    return cover.startsWith("/") ? convertFileSrc(cover) : cover;
+  }
 
   export let loans: Loan[];
-  /** Dim the list while a refresh or session restore is in flight. */
-  export let dimmed: boolean;
-  /** Renewals disabled (refresh in flight / reconnecting / cache-only). */
+  export let dimmed: boolean; // list dimmed while a refresh/restore is in flight
   export let renewDisabled: boolean;
-  /** Per-record renew spinner state, keyed by recordId. */
-  export let renewing: Record<string, boolean>;
+  export let renewing: Record<string, boolean>; // spinner state keyed by recordId
   export let onrenew: (item: Loan) => void;
   export let onopen: (item: Loan) => void;
   export let onlibby: () => void;
 
-  // Cover URLs that failed to load render the 📖 placeholder instead.
-  let brokenCovers: Record<string, boolean> = {};
+  let brokenCovers: Record<string, boolean> = {}; // 📖 fallback after load errors
 
   function markBroken(url: string) {
     if (!url) return;
@@ -41,7 +44,7 @@
         {#if item.cover && !brokenCovers[item.cover]}
           <img
             class="cover"
-            src={item.cover}
+            src={coverSrc(item.cover)}
             alt=""
             loading="lazy"
             onerror={() => markBroken(item.cover ?? "")}
@@ -81,8 +84,8 @@
     gap: 6px;
     overflow-y: auto;
     flex: 1;
-    /* Without this the flex item grows to its content height instead of
-       scrolling, which overflows (and clips) the fixed-size panel. */
+    /* min-height: 0 lets the flex item shrink to the panel height and
+       scroll; without it the list overflows the fixed-size panel. */
     min-height: 0;
   }
   .loans.busy {

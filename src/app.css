@@ -1,12 +1,10 @@
 /*
-  Shared design primitives for the SacPL Loans panel. Component-specific
-  styles live scoped inside each .svelte file; the classes here are the
-  building blocks reused across views (buttons, form fields, headers,
-  spinners). Component-scoped rules always win over these globals.
+  Shared design primitives (buttons, form fields, headers, spinners) used
+  across the panel's views; component-specific styles are scoped in each
+  .svelte file and take precedence over these globals.
 
   Colors are theme tokens: the panel follows the system dark/light
-  appearance via prefers-color-scheme. Dark values match the original
-  dark-only design; light values are the Apple-style equivalents.
+  appearance via prefers-color-scheme.
 */
 
 html,

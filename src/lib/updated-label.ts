@@ -1,6 +1,5 @@
 // Pure helpers behind the footer's "Updated …" text and the stale-on-open
-// refresh decision. Timestamps are ms since the epoch; `now` is always a
-// parameter so callers (and tests) can pin the clock.
+// refresh decision. `now`/`locale` are parameters so tests can pin them.
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -11,11 +10,7 @@ export function startOfDay(ms: number): number {
   return d.getTime();
 }
 
-/**
- * "Sep 6 2026" — month-first date form used by the >6-day label and the
- * hover tooltip. The year is shown only when the date falls in a previous
- * calendar year than `now`. Locale is injectable for tests.
- */
+/** "Sep 6 2026"; the year only for a previous calendar year than `now`. */
 export function stampDate(ms: number, now: number, locale?: string): string {
   const d = new Date(ms);
   const month = d.toLocaleString(locale, { month: "short" });
@@ -24,17 +19,14 @@ export function stampDate(ms: number, now: number, locale?: string): string {
 }
 
 /** "Sep 6 10:15 PM" (or 24h, per the user's locale) — hover tooltip. */
-export function fullStamp(ms: number, now: number, locale?: string): string {
-  const d = new Date(ms);
+export function fullStamp(ms: number, now: number, locale?: string): string {  const d = new Date(ms);
   const time = d.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
   return `${stampDate(ms, now, locale)} ${time}`;
 }
 
 /**
- * Footer label for when the list was last refreshed:
- * same day → "Updated <time>"; 1 day → "Updated yesterday";
- * 2–6 days → "Updated N days ago"; otherwise "Updated <date>".
- * "" when never refreshed. `formatTime` is injectable for tests.
+ * Footer label: same day → time; 1 day → "yesterday"; 2–6 days →
+ * "N days ago"; older → date. "" when never refreshed.
  */
 export function updatedLabel(
   lastUpdated: number,
