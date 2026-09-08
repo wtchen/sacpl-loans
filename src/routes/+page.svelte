@@ -12,6 +12,7 @@
   import { withTimeout } from "$lib/withTimeout";
   import type { LibStatus, Loan, Checkouts, RenewResult, AppSettings } from "$lib/types";
   import { updatedLabel as updatedLabelText, fullStamp, isStale } from "$lib/updated-label";
+  import { isRenewBlocked, simulatedRenewalDue } from "$lib/renew";
   import ConnectingView from "$lib/components/ConnectingView.svelte";
   import LoginView from "$lib/components/LoginView.svelte";
   import AccountHeader from "$lib/components/AccountHeader.svelte";
@@ -19,6 +20,7 @@
   import LoanList from "$lib/components/LoanList.svelte";
   import ListState from "$lib/components/ListState.svelte";
   import RefreshFooter from "$lib/components/RefreshFooter.svelte";
+  import RenewConfirm from "$lib/components/RenewConfirm.svelte";
   import Settings from "$lib/components/Settings.svelte";
   import Toast from "$lib/components/Toast.svelte";
 
@@ -39,6 +41,9 @@
   let reconnecting = false; // a refresh is re-authenticating an expired session
   let debugActive = false;
   let debugLoanIds = new Set<string>();
+  // The item awaiting renewal confirmation (null = dialog closed).
+  let renewConfirm: Loan | null = null;
+  let renewConfirming = false;
 
   function stopStatusPoll() {
     if (statusPoll) {
@@ -340,19 +345,37 @@
     }
   }
 
-  async function renewOne(item: Loan) {
-    if (renewBlocked()) return;
+  // Ask first: clicking Renew opens the confirmation dialog instead of
+  // renewing immediately.
+  function askRenew(item: Loan) {
+    if (renewBlocked) return;
+    renewConfirm = item;
+  }
+
+  // The dialog's Renew button: runs the renewal, keeps the dialog open
+  // (with a spinner) until the result is known, then closes.
+  async function confirmRenew() {
+    const item = renewConfirm;
+    if (!item || renewConfirming) return;
+    renewConfirming = true;
+    try {
+      await doRenew(item);
+    } finally {
+      renewConfirming = false;
+      renewConfirm = null;
+    }
+  }
+
+  async function doRenew(item: Loan) {
+    if (renewBlocked) return;
     renewing = { ...renewing, [item.recordId]: true };
     try {
       // Fake debug loans never call the catalog. Simulate a successful renewal
       // by moving their due date three weeks forward in the panel only.
       if (debugLoanIds.has(item.recordId)) {
-        const due = new Date();
-        due.setDate(due.getDate() + 21);
+        const dueLabel = simulatedRenewalDue(Date.now());
         loans = loans.map((loan) =>
-          loan.recordId === item.recordId
-            ? { ...loan, due: `Due ${due.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" })}` }
-            : loan
+          loan.recordId === item.recordId ? { ...loan, due: dueLabel } : loan
         );
         showToast("Renewed! (simulated)");
         return;
@@ -381,18 +404,26 @@
     }
   }
 
-  const overdueCount = () => loans.filter((l) => l.overdue).length;
   // The catalog's checkoutInfoLastLoaded rarely changes between fetches (it's
   // the ILS sync time), so the footer shows OUR last successful refresh.
-  const updatedLabel = () => updatedLabelText(lastUpdated, Date.now());
+  // These are reactive declarations (not const functions called in the
+  // template): Svelte only tracks variables referenced directly in a template
+  // expression, so a const helper reading `lastUpdated` would never update.
+  $: overdueCount = loans.filter((l) => l.overdue).length;
+  $: updatedLabel = updatedLabelText(lastUpdated, Date.now());
   // Hover tooltip: full timestamp, e.g. "Sep 6 10:15 PM".
-  const updatedTitle = () => (lastUpdated ? fullStamp(lastUpdated, Date.now()) : "");
+  $: updatedTitle = lastUpdated ? fullStamp(lastUpdated, Date.now()) : "";
   // Renewal is disabled while a refresh is in flight, while the list on
   // screen is only the disk cache (we don't know we're logged in yet), and
   // while the backend is signing back in after a session expiry.
-  const renewBlocked = () => busy || reconnecting || (hasCache && lastFetchAt === 0);
+  $: renewBlocked = isRenewBlocked({ busy, reconnecting, hasCache, lastFetchAt });
 </script>
 
+<svelte:window
+  onkeydown={(e) => {
+    if (renewConfirm && e.key === "Escape") renewConfirm = null;
+  }}
+/>
 <div class="panel">
   {#if phase === "connecting"}
     <ConnectingView onquit={quitApp} />
@@ -405,7 +436,7 @@
   {#if phase === "account"}
     <AccountHeader
       loanCount={loans.length}
-      overdueCount={overdueCount()}
+      overdueCount={overdueCount}
       busy={busy}
       onsettings={() => (phase = "settings")} 
       onlogout={doLogout}
@@ -422,9 +453,9 @@
       <LoanList
         loans={loans}
         dimmed={busy || reconnecting}
-        renewDisabled={renewBlocked()}
+        renewDisabled={renewBlocked}
         renewing={renewing}
-        onrenew={renewOne}
+        onrenew={askRenew}
         onopen={openLoan}
         onlibby={libbyNote}
       />
@@ -438,8 +469,8 @@
       <RefreshFooter
         busy={busy}
         reconnecting={reconnecting}
-        updated={updatedLabel()}
-        updatedTitle={updatedTitle()}
+        updated={updatedLabel}
+        updatedTitle={updatedTitle}
         onrefresh={() => loadCheckouts()}
       />
     {/if}
@@ -449,6 +480,15 @@
         <button class="btn ghost" onclick={() => invoke("lib_show_debug_events", { show: true })}>Return to Events</button>
         <button class="btn ghost" onclick={exitDebugMode}>Exit Debug</button>
       </div>
+    {/if}
+
+    {#if renewConfirm}
+      <RenewConfirm
+        item={renewConfirm}
+        busy={renewConfirming}
+        oncancel={() => (renewConfirm = null)}
+        onconfirm={confirmRenew}
+      />
     {/if}
   {/if}
 
